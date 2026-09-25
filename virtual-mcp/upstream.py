@@ -176,6 +176,18 @@ async def list_mcp_services(token: str) -> list[dict]:
     return services
 
 
+async def revoke_user_credential(token: str, name: str) -> int:
+    """DELETE the caller's stored credential for one MCP service. Returns the HTTP
+    status (404 = already had none). Used by the guided-revoke flow."""
+    host = databricks_host()
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        resp = await client.delete(
+            f"{host}{_UC_MCP_SERVICES}/{name}/user-credentials",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    return resp.status_code
+
+
 async def user_credential_state(token: str, name: str) -> str:
     """Return login state for one service: 'ACTIVE', 'NEEDS_LOGIN', or 'NO_AUTH'.
 

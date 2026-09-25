@@ -160,6 +160,7 @@ def login_page(cfg: cfg_mod.VirtualMcpConfig) -> str:
     <div class="muted" style="margin-top:6px">The virtual MCP combines several services. We'll walk you through signing in to each one that still needs it, one after another, using the platform's own <code>/mcp-service-login</code> page in a popup.</div>
     <div class="row" style="margin-top:12px">
       <button class="primary" id="guided">Start guided login</button>
+      <button id="revokeall">Revoke all logins</button>
       <button id="refresh">Refresh status</button>
     </div>
     <div id="list" style="margin-top:14px">Loading…</div>
@@ -194,15 +195,24 @@ function render() {{
   STATUS.forEach(s => {{
     const div = document.createElement('div');
     div.className = 'svc';
+    const action = s.state === 'NEEDS_LOGIN'
+      ? `<button data-name="${{s.name}}" class="one">Login</button>`
+      : (s.state === 'ACTIVE' ? `<button data-name="${{s.name}}" class="rev">Revoke</button>` : '');
     div.innerHTML = `<div class="row between">
       <div><h3>${{s.name}}</h3><span class="muted">${{s.alias}}</span></div>
-      <div class="row">${{badge(s.state)}} ${{s.state==='NEEDS_LOGIN' ? `<button data-name="${{s.name}}" class="one">Login</button>`:''}}</div>
+      <div class="row">${{badge(s.state)}} ${{action}}</div>
     </div>`;
     root.appendChild(div);
   }});
   root.querySelectorAll('.one').forEach(b => b.addEventListener('click', () => loginOne(b.dataset.name)));
+  root.querySelectorAll('.rev').forEach(b => b.addEventListener('click', () => revokeOne(b.dataset.name)));
   const allDone = STATUS.every(s => s.state !== 'NEEDS_LOGIN');
   document.getElementById('done').textContent = allDone ? '✓ All set — your virtual MCP is ready to use.' : '';
+}}
+
+async function revokeOne(name) {{
+  await fetch('/api/revoke', {{ method:'POST', headers:{{'content-type':'application/json'}}, body: JSON.stringify({{ name }}) }});
+  await refresh();
 }}
 
 function popup(name) {{
@@ -229,6 +239,16 @@ document.getElementById('guided').addEventListener('click', async () => {{
     if (fresh && fresh.state === 'NEEDS_LOGIN') await loginOne(s.name);
   }}
   await refresh();
+}});
+// Guided revoke: sign OUT of every signed-in service, one after another.
+document.getElementById('revokeall').addEventListener('click', async () => {{
+  const done = document.getElementById('done');
+  await refresh();
+  const active = STATUS.filter(x => x.state === 'ACTIVE');
+  if (!active.length) {{ done.textContent = 'Nothing to revoke — no services are signed in.'; return; }}
+  for (const s of active) {{ done.textContent = 'Revoking ' + s.name + '…'; await revokeOne(s.name); }}
+  await refresh();
+  done.textContent = '✓ Revoked all logins for this virtual MCP.';
 }});
 document.getElementById('refresh').addEventListener('click', refresh);
 refresh();
