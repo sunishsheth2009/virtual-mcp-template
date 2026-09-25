@@ -65,8 +65,11 @@ async def capture_user_token(request: Request, call_next):
 
 
 # --------------------------------------------------------------------------- #
-# The virtual MCP server itself (streamable HTTP), mounted as raw ASGI.
-# --------------------------------------------------------------------------- #
+# The virtual MCP server (streamable HTTP). We do NOT use app.mount("/mcp", ...):
+# Starlette's Mount 307-redirects the bare "/mcp" to "/mcp/" using the app's
+# internal host (localhost:8000), which MCP clients can't follow. Instead an
+# outer ASGI wrapper dispatches BOTH "/mcp" and "/mcp/" straight to the session
+# manager -- no redirect, correct host.
 async def _mcp_asgi(scope, receive, send):
     token = None
     for key, value in scope.get("headers", []):
@@ -77,7 +80,14 @@ async def _mcp_asgi(scope, receive, send):
     await _session_manager.handle_request(scope, receive, send)
 
 
-app.mount("/mcp", _mcp_asgi)
+async def application(scope, receive, send):
+    """ASGI entrypoint: MCP traffic to /mcp(/) bypasses FastAPI routing (no
+    trailing-slash redirect); everything else (pages, APIs, lifespan) goes to
+    FastAPI, whose lifespan runs the MCP session manager."""
+    if scope["type"] == "http" and scope.get("path", "").rstrip("/") == "/mcp":
+        await _mcp_asgi(scope, receive, send)
+        return
+    await app(scope, receive, send)
 
 
 # --------------------------------------------------------------------------- #
@@ -148,4 +158,4 @@ if __name__ == "__main__":
     import uvicorn
 
     port = int(os.environ.get("DATABRICKS_APP_PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(application, host="0.0.0.0", port=port)
