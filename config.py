@@ -81,14 +81,61 @@ def _parse(raw: dict) -> VirtualMcpConfig:
     )
 
 
+_VOLUME_CONFIG_FILE = "virtual_mcp_config.json"
+
+
+def _load_from_volume(vol_path: str) -> VirtualMcpConfig | None:
+    """Read the selection from `<volume>/virtual_mcp_config.json`.
+
+    The template declares a `config-volume` resource; when a user picks a volume
+    in the create wizard, its path is injected here as /Volumes/<cat>/<sch>/<vol>.
+    Try a direct filesystem read first, then the Files API (SP creds)."""
+    target = f"{vol_path.rstrip('/')}/{_VOLUME_CONFIG_FILE}"
+    try:
+        with open(target) as f:
+            return _parse(json.load(f))
+    except OSError:
+        pass
+    try:
+        from databricks.sdk import WorkspaceClient
+
+        resp = WorkspaceClient().files.download(target)
+        return _parse(json.loads(resp.contents.read()))
+    except Exception:  # noqa: BLE001 - fall through to other config sources
+        return None
+
+
+def _discover_volume_config() -> VirtualMcpConfig | None:
+    """For native-template apps: find a bound VOLUME resource on THIS app and read
+    its `virtual_mcp_config.json`. Avoids needing an app.yaml `valueFrom` (which
+    would fail to deploy on the Builder/script paths that bind no volume)."""
+    try:
+        from databricks.sdk import WorkspaceClient
+        from databricks.sdk.service.apps import AppResourceUcSecurableUcSecurableType as VolType
+
+        name = os.environ.get("DATABRICKS_APP_NAME")
+        if not name:
+            return None
+        me = WorkspaceClient().apps.get(name)
+        for r in me.resources or []:
+            ucs = getattr(r, "uc_securable", None)
+            if ucs and ucs.securable_type == VolType.VOLUME and ucs.securable_full_name:
+                return _load_from_volume("/Volumes/" + ucs.securable_full_name.replace(".", "/"))
+    except Exception:  # noqa: BLE001 - fall through to bundled config
+        return None
+    return None
+
+
 def load() -> VirtualMcpConfig:
     global _current
     with _lock:
         if _current is not None:
             return _current
-        # Precedence: the VIRTUAL_MCP_CONFIG env var (set at app-creation time so
-        # the template's "mix & match" selection bakes into the deployed app),
-        # then the seed config.json, then empty.
+        # Precedence:
+        # 1. VIRTUAL_MCP_CONFIG env (inline JSON) -- Builder-created apps.
+        # 2. VIRTUAL_MCP_CONFIG_VOLUME (a /Volumes path) if wired via app.yaml.
+        # 3. a bound VOLUME resource discovered on this app -- native-template apps.
+        # 4. bundled config.json -- default mix.
         env_cfg = os.environ.get("VIRTUAL_MCP_CONFIG", "").strip()
         if env_cfg:
             try:
@@ -96,6 +143,11 @@ def load() -> VirtualMcpConfig:
                 return _current
             except (json.JSONDecodeError, TypeError):
                 pass
+        vol = os.environ.get("VIRTUAL_MCP_CONFIG_VOLUME", "").strip()
+        from_vol = _load_from_volume(vol) if vol else _discover_volume_config()
+        if from_vol is not None:
+            _current = from_vol
+            return _current
         if os.path.exists(_CONFIG_PATH):
             with open(_CONFIG_PATH) as f:
                 _current = _parse(json.load(f))

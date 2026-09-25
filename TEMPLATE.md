@@ -75,6 +75,31 @@ this template in the gallery you must (a) push this folder into that repo as e.g
 > once the template code exists in `databricks/app-templates`, otherwise the
 > gallery 404s. Submit (a) + (b) together.
 
+## Native Databricks Apps template (Custom templates Preview) — with a volume "form element"
+
+The custom template is registered against a **public** repo so the Apps service
+can clone it. The one selection the native create wizard *can* render is a
+**resource** — so the template declares a **`config-volume`** UC-volume resource.
+Flow:
+
+1. **Create a preset volume** (the picker's payload):
+   ```bash
+   ./create_preset_volume.sh main.myschema.my_mcp_preset services.json ml-inference
+   ```
+   This writes your chosen mix to `/Volumes/main/myschema/my_mcp_preset/virtual_mcp_config.json`.
+2. **Apps UI → Create app → Custom templates → "Virtual MCP Server"** → the wizard
+   shows a **volume picker** for `config-volume`; pick your preset volume → Create.
+3. The app discovers its bound volume (via the SDK) and loads the mix from
+   `virtual_mcp_config.json`. (Config precedence: `VIRTUAL_MCP_CONFIG` env →
+   `VIRTUAL_MCP_CONFIG_VOLUME` → bound volume resource → bundled `config.json`.)
+4. **Account admin** adds `unity-catalog` to the new app's OAuth integration;
+   open the app in incognito → **Guided Login** → tools live at `<app>/mcp`.
+
+The wizard still can't render a *per-tool* picker (no custom form fields exist) —
+the tool selectors live in the volume's `virtual_mcp_config.json`. Author those
+presets with `create_preset_volume.sh` (or a small UI/Builder that writes the
+volume).
+
 ## Scopes (all three paths) — CONFIRMED set: `unity-catalog` + `ai-gateway`
 
 The app talks to Unity Catalog (list MCP services + per-user login status) and
