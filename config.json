@@ -1,0 +1,23 @@
+{
+  "display_name": "Virtual MCP Server",
+  "services": [
+    {
+      "name": "main.sunish_rsrc_policy_poc.gh_test_mcp",
+      "alias": "gh",
+      "include_tools": [],
+      "include_regex": "get_.*|list_.*"
+    },
+    {
+      "name": "tony_cai.ai_gov.github_mcp4",
+      "alias": "gh4",
+      "include_tools": [],
+      "include_regex": ""
+    },
+    {
+      "name": "system.ai.genie_one_mcp",
+      "alias": "genie",
+      "include_tools": [],
+      "include_regex": ""
+    }
+  ]
+}

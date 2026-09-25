@@ -1,0 +1,27 @@
+# DABs bundle for the Virtual MCP Server prototype.
+# Deploy with:  databricks apps deploy -t dev --profile <PROFILE>
+bundle:
+  name: virtual-mcp-app
+
+resources:
+  apps:
+    virtual-mcp:
+      name: virtual-mcp
+      description: "Virtual MCP server: one endpoint that merges tools from several UC MCP services."
+      source_code_path: .
+      # Only `ai-gateway` is on the apps user_api_scopes allowlist, so only it can
+      # be requested here. `unity-catalog` (needed to list MCP services + read
+      # login status) is NOT allowlisted -- add it to the app's OAuth
+      # custom-app-integration as an account admin after creation (see TEMPLATE.md).
+      # Requires workspace user authorization (Public Preview).
+      user_api_scopes:
+        - ai-gateway
+      config:
+        command:
+          - python
+          - app.py
+
+targets:
+  dev:
+    default: true
+    mode: development

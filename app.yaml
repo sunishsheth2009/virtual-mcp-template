@@ -1,0 +1,21 @@
+# Databricks Apps runtime config for the Virtual MCP Server prototype.
+# The runtime does NOT shell-expand ${...} in command args, so we run via
+# python and read DATABRICKS_APP_PORT inside app.py's __main__ (uvicorn.run).
+command:
+  - python
+  - app.py
+
+env:
+  # Public URL of this app, used to build return links on the login page.
+  - name: DATABRICKS_APP_URL
+    value: ""  # set to your deployed app URL, e.g. https://virtual-mcp-xxxx.databricksapps.com
+
+# User (on-behalf-of) authorization scopes. CONFIRMED set for this app:
+#   unity-catalog -> GET /api/2.1/unity-catalog/mcp-services (+ user-credentials)
+#   ai-gateway    -> POST /ai-gateway/mcp-services/{fqn} (tools/list, tools/call)
+# Only `ai-gateway` is on the apps user_api_scopes allowlist, so only it can be
+# requested here / via `apps create --json`. `unity-catalog` is NOT allowlisted;
+# add it to the app's OAuth custom-app-integration as an account admin after
+# creation (see TEMPLATE.md). User authorization must be enabled (Public Preview).
+user_api_scopes:
+  - ai-gateway
