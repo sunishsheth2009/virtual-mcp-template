@@ -194,7 +194,9 @@ async def user_credential_state(token: str, name: str) -> str:
     404 => the user has no stored credential => needs to log in.
     """
     host = databricks_host()
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    # Short timeout: the caller checks many services and a slow/rate-limited UC
+    # must not stall the request (the app-level wait_for adds a hard cap too).
+    async with httpx.AsyncClient(timeout=8.0) as client:
         resp = await client.get(
             f"{host}{_UC_MCP_SERVICES}/{name}/user-credentials",
             headers={"Authorization": f"Bearer {token}"},

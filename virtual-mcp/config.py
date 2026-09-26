@@ -84,6 +84,16 @@ def _parse(raw: dict) -> VirtualMcpConfig:
 _VOLUME_CONFIG_FILE = "virtual_mcp_config.json"
 
 
+def _bounded_client():
+    """A WorkspaceClient whose retries are time-bounded, so a slow/rate-limited
+    Unity Catalog can't make a call hang for minutes. Volume discovery runs in a
+    startup thread, but we still cap it defensively."""
+    from databricks.sdk import WorkspaceClient
+    from databricks.sdk.core import Config
+
+    return WorkspaceClient(config=Config(retry_timeout_seconds=20, http_timeout_seconds=15))
+
+
 def _load_from_volume(vol_path: str) -> VirtualMcpConfig | None:
     """Read the selection from `<volume>/virtual_mcp_config.json`.
 
@@ -97,9 +107,7 @@ def _load_from_volume(vol_path: str) -> VirtualMcpConfig | None:
     except OSError:
         pass
     try:
-        from databricks.sdk import WorkspaceClient
-
-        resp = WorkspaceClient().files.download(target)
+        resp = _bounded_client().files.download(target)
         return _parse(json.loads(resp.contents.read()))
     except Exception:  # noqa: BLE001 - fall through to other config sources
         return None
@@ -110,13 +118,12 @@ def _discover_volume_config() -> VirtualMcpConfig | None:
     its `virtual_mcp_config.json`. Avoids needing an app.yaml `valueFrom` (which
     would fail to deploy on the Builder/script paths that bind no volume)."""
     try:
-        from databricks.sdk import WorkspaceClient
         from databricks.sdk.service.apps import AppResourceUcSecurableUcSecurableType as VolType
 
         name = os.environ.get("DATABRICKS_APP_NAME")
         if not name:
             return None
-        me = WorkspaceClient().apps.get(name)
+        me = _bounded_client().apps.get(name)
         for r in me.resources or []:
             ucs = getattr(r, "uc_securable", None)
             if ucs and ucs.securable_type == VolType.VOLUME and ucs.securable_full_name:
@@ -126,31 +133,42 @@ def _discover_volume_config() -> VirtualMcpConfig | None:
     return None
 
 
+def _local_config() -> VirtualMcpConfig:
+    """Fast, no-network config: the VIRTUAL_MCP_CONFIG env var else the bundled
+    config.json else empty. Used on the request path so handlers NEVER block on a
+    Unity Catalog call (which, under UC rate-limiting, would freeze the event loop
+    and 502 every route)."""
+    env_cfg = os.environ.get("VIRTUAL_MCP_CONFIG", "").strip()
+    if env_cfg:
+        try:
+            return _parse(json.loads(env_cfg))
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if os.path.exists(_CONFIG_PATH):
+        with open(_CONFIG_PATH) as f:
+            return _parse(json.load(f))
+    return VirtualMcpConfig()
+
+
 def load() -> VirtualMcpConfig:
+    """Return the cached config. Fast and non-blocking -- volume discovery happens
+    once at startup via refresh_from_volume(), off the request path."""
     global _current
     with _lock:
-        if _current is not None:
-            return _current
-        # Precedence:
-        # 1. VIRTUAL_MCP_CONFIG env (inline JSON) -- Builder-created apps.
-        # 2. VIRTUAL_MCP_CONFIG_VOLUME (a /Volumes path) if wired via app.yaml.
-        # 3. a bound VOLUME resource discovered on this app -- native-template apps.
-        # 4. bundled config.json -- default mix.
-        env_cfg = os.environ.get("VIRTUAL_MCP_CONFIG", "").strip()
-        if env_cfg:
-            try:
-                _current = _parse(json.loads(env_cfg))
-                return _current
-            except (json.JSONDecodeError, TypeError):
-                pass
-        vol = os.environ.get("VIRTUAL_MCP_CONFIG_VOLUME", "").strip()
-        from_vol = _load_from_volume(vol) if vol else _discover_volume_config()
-        if from_vol is not None:
-            _current = from_vol
-            return _current
-        if os.path.exists(_CONFIG_PATH):
-            with open(_CONFIG_PATH) as f:
-                _current = _parse(json.load(f))
-        else:
-            _current = VirtualMcpConfig()
+        if _current is None:
+            _current = _local_config()
         return _current
+
+
+def refresh_from_volume() -> None:
+    """Blocking network discovery of the bound VOLUME's config, replacing the
+    cached config if found. Meant to run ONCE at startup in a worker thread so it
+    never blocks the async event loop. No-op for Builder/env-configured apps."""
+    global _current
+    if os.environ.get("VIRTUAL_MCP_CONFIG", "").strip():
+        return  # inline env config wins; no volume lookup needed
+    vol = os.environ.get("VIRTUAL_MCP_CONFIG_VOLUME", "").strip()
+    from_vol = _load_from_volume(vol) if vol else _discover_volume_config()
+    if from_vol is not None:
+        with _lock:
+            _current = from_vol

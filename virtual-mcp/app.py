@@ -16,6 +16,7 @@ Surfaces:
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import os
 
@@ -72,8 +73,28 @@ def _token_from_request(request: Request) -> str | None:
 
 @contextlib.asynccontextmanager
 async def lifespan(_: FastAPI):
+    # Prime the config cache with fast, local config (env/bundled -- no network),
+    # then discover the bound volume's config in a worker thread so the blocking
+    # Unity Catalog calls never run on the event loop (which, under UC rate
+    # limiting, would freeze every route). Fire-and-forget: serving starts now.
+    cfg_mod.load()
+    asyncio.create_task(asyncio.to_thread(cfg_mod.refresh_from_volume))
     async with _session_manager.run():
         yield
+
+
+async def _credential_states(token: str, services) -> list[str]:
+    """Per-service login state, checked in parallel with a short timeout so a
+    slow/rate-limited Unity Catalog can't stall the request. Unknown -> treated
+    as NEEDS_LOGIN so the guided flow still offers a sign-in."""
+
+    async def one(name: str) -> str:
+        try:
+            return await asyncio.wait_for(user_credential_state(token, name), timeout=8)
+        except (asyncio.TimeoutError, Exception):  # noqa: BLE001
+            return "NEEDS_LOGIN"
+
+    return await asyncio.gather(*(one(s.name) for s in services))
 
 
 app = FastAPI(title="Virtual MCP Server", lifespan=lifespan)
@@ -138,8 +159,10 @@ async def login(request: Request):
     page. This is the redirect-driven flow; /login-status is the management view."""
     token = _token_from_request(request)
     if token:
-        for s in cfg_mod.load().services:
-            if await user_credential_state(token, s.name) == "NEEDS_LOGIN":
+        services = cfg_mod.load().services
+        states = await _credential_states(token, services)
+        for s, state in zip(services, states):
+            if state == "NEEDS_LOGIN":
                 return_to = quote(f"{_public_base(request)}/login", safe="")
                 return RedirectResponse(
                     f"{databricks_host()}/mcp-service-login?name={quote(s.name)}&return_to={return_to}",
@@ -176,11 +199,11 @@ async def api_login_status(request: Request):
     token = _token_from_request(request)
     if not token:
         return JSONResponse({"error": "no_user_token"}, status_code=401)
-    cfg = cfg_mod.load()
-    statuses = []
-    for s in cfg.services:
-        state = await user_credential_state(token, s.name)
-        statuses.append({"name": s.name, "alias": s.alias, "state": state})
+    services = cfg_mod.load().services
+    states = await _credential_states(token, services)
+    statuses = [
+        {"name": s.name, "alias": s.alias, "state": st} for s, st in zip(services, states)
+    ]
     return {"services": statuses, "login_base": f"{databricks_host()}/mcp-service-login"}
 
 
