@@ -2,22 +2,59 @@
   "display_name": "Virtual MCP Server",
   "services": [
     {
-      "name": "main.sunish_rsrc_policy_poc.gh_test_mcp",
-      "alias": "gh",
-      "include_tools": [],
+      "name": "system.ai.atlassian",
+      "alias": "atlassian",
       "include_regex": "get_.*|list_.*"
     },
     {
-      "name": "tony_cai.ai_gov.github_mcp4",
-      "alias": "gh4",
-      "include_tools": [],
-      "include_regex": ""
+      "name": "system.ai.dbsql",
+      "alias": "dbsql",
+      "include_regex": "create_.*|get_.*|list_.*|search.*"
     },
     {
       "name": "system.ai.genie_one_mcp",
-      "alias": "genie",
-      "include_tools": [],
-      "include_regex": ""
+      "alias": "genie_one_mcp",
+      "include_regex": "create_.*|list_.*"
+    },
+    {
+      "name": "system.ai.github",
+      "alias": "github",
+      "include_regex": "create_.*|get_.*|read_.*|send_.*"
+    },
+    {
+      "name": "system.ai.gmail",
+      "alias": "gmail",
+      "include_regex": "list_.*|read_.*"
+    },
+    {
+      "name": "system.ai.google_calendar",
+      "alias": "google_calendar",
+      "include_regex": "get_.*|read_.*|search.*|send_.*"
+    },
+    {
+      "name": "system.ai.google_drive",
+      "alias": "google_drive",
+      "include_regex": "create_.*|get_.*|search.*"
+    },
+    {
+      "name": "system.ai.microsoft_365",
+      "alias": "microsoft_365",
+      "include_regex": "create_.*|list_.*|search.*|send_.*"
+    },
+    {
+      "name": "system.ai.sandbox",
+      "alias": "sandbox",
+      "include_regex": "create_.*|send_.*"
+    },
+    {
+      "name": "system.ai.slack",
+      "alias": "slack",
+      "include_regex": "get_.*|read_.*|search.*|send_.*"
+    },
+    {
+      "name": "system.ai.web_search",
+      "alias": "web_search",
+      "include_regex": "get_.*|read_.*|search.*"
     }
   ]
 }

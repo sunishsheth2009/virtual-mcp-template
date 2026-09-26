@@ -168,13 +168,16 @@ async def login(request: Request):
                     f"{databricks_host()}/mcp-service-login?name={quote(s.name)}&return_to={return_to}",
                     status_code=302,
                 )
-    # No token, or every service is already signed in -> management/status page.
-    return RedirectResponse("/login-status", status_code=302)
+    # No token, or every service is already signed in -> back to the home page,
+    # which shows per-service status + tools.
+    return RedirectResponse("/", status_code=302)
 
 
-@app.get("/login-status", response_class=HTMLResponse)
-async def login_status() -> str:
-    return pages.status_page(cfg_mod.load())
+@app.get("/login-status")
+async def login_status():
+    # Status + sign-in + revoke are merged into the home page now; keep this path
+    # as a redirect so old links still work.
+    return RedirectResponse("/", status_code=302)
 
 
 @app.get("/api/tools")
