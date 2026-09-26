@@ -19,14 +19,16 @@ from __future__ import annotations
 import contextlib
 import os
 
+from urllib.parse import quote
+
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.server.transport_security import TransportSecuritySettings
 
 import config as cfg_mod
 import pages
-from context import USER_TOKEN_HEADER, databricks_host, set_user_token
+from context import USER_TOKEN_HEADER, app_base_url, databricks_host, set_user_token
 import mcp_proxy
 from mcp_proxy import server
 from upstream import revoke_user_credential, user_credential_state
@@ -122,9 +124,34 @@ async def index() -> str:
     return pages.home_page(cfg_mod.load())
 
 
-@app.get("/login", response_class=HTMLResponse)
-async def login() -> str:
-    return pages.login_page(cfg_mod.load())
+def _public_base(request: Request) -> str:
+    """Public base URL of this app, for building an mcp-service-login return_to."""
+    host = request.headers.get("host")
+    return f"https://{host}" if host else app_base_url()
+
+
+@app.get("/login")
+async def login(request: Request):
+    """Guided sign-in: redirect the browser to the platform's /mcp-service-login
+    for the first underlying service that still needs it (with return_to back
+    here so it chains through the rest); once none remain, land on the status
+    page. This is the redirect-driven flow; /login-status is the management view."""
+    token = _token_from_request(request)
+    if token:
+        for s in cfg_mod.load().services:
+            if await user_credential_state(token, s.name) == "NEEDS_LOGIN":
+                return_to = quote(f"{_public_base(request)}/login", safe="")
+                return RedirectResponse(
+                    f"{databricks_host()}/mcp-service-login?name={quote(s.name)}&return_to={return_to}",
+                    status_code=302,
+                )
+    # No token, or every service is already signed in -> management/status page.
+    return RedirectResponse("/login-status", status_code=302)
+
+
+@app.get("/login-status", response_class=HTMLResponse)
+async def login_status() -> str:
+    return pages.status_page(cfg_mod.load())
 
 
 @app.get("/api/tools")
