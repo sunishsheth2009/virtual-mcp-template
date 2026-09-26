@@ -189,22 +189,26 @@ async def revoke_user_credential(token: str, name: str) -> int:
 
 
 async def user_credential_state(token: str, name: str) -> str:
-    """Return login state for one service: 'ACTIVE', 'NEEDS_LOGIN', or 'NO_AUTH'.
+    """Return login state for one service: 'ACTIVE' or 'NEEDS_LOGIN'.
 
-    404 => the user has no stored credential => needs to log in.
+    Only a 200 with provisioning state ACTIVE counts as signed in. Everything else
+    -- 404 (no stored credential), a non-active 200, OR any transient error
+    (500/503/429 while Unity Catalog is rate-limited) -- returns NEEDS_LOGIN so the
+    UI still OFFERS sign-in. (A transient server error must NOT be mistaken for
+    "no sign-in needed", which would hide the Sign in button.)
     """
     host = databricks_host()
     # Short timeout: the caller checks many services and a slow/rate-limited UC
     # must not stall the request (the app-level wait_for adds a hard cap too).
-    async with httpx.AsyncClient(timeout=8.0) as client:
-        resp = await client.get(
-            f"{host}{_UC_MCP_SERVICES}/{name}/user-credentials",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-    if resp.status_code == 404:
-        return "NEEDS_LOGIN"
-    if resp.status_code >= 400:
-        # Some services need no per-user auth; treat auth-not-required as done.
-        return "NO_AUTH"
-    state = (resp.json().get("provisioning_info") or {}).get("state", "")
-    return "ACTIVE" if state == "ACTIVE" else "NEEDS_LOGIN"
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.get(
+                f"{host}{_UC_MCP_SERVICES}/{name}/user-credentials",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+        if resp.status_code == 200:
+            state = (resp.json().get("provisioning_info") or {}).get("state", "")
+            return "ACTIVE" if state == "ACTIVE" else "NEEDS_LOGIN"
+    except (httpx.HTTPError, ValueError):
+        pass
+    return "NEEDS_LOGIN"
