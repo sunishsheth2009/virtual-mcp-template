@@ -32,15 +32,36 @@ from mcp_proxy import server
 from upstream import revoke_user_credential, user_credential_state
 
 # Stateless proxy: every MCP request is independent, so no session store needed.
+# json_response=True: reply with a single plain-JSON body instead of an SSE frame.
+# Non-streaming clients (e.g. the AI Gateway / playground, a Jackson-based Java
+# caller) send `Accept: application/json` and cannot parse an SSE frame; in JSON
+# mode the SDK also relaxes its Accept check to json-only, so they stop getting
+# 406. Spec-compliant clients accept JSON too, so this works for both. (Trade-off:
+# JSON mode disables server->client requests, which this proxy doesn't use -- the
+# "not signed in" case is returned as tool text, not an elicitation.)
 # Disable DNS-rebinding protection: the Databricks Apps reverse proxy fronts the
 # app under a *.databricksapps.com host, which the localhost-oriented default
 # allow-list would otherwise reject.
 _session_manager = StreamableHTTPSessionManager(
     app=server,
-    json_response=False,
+    json_response=True,
     stateless=True,
     security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
+
+_ACCEPT_BOTH = b"application/json, text/event-stream"
+
+
+def _with_full_accept(scope: dict) -> dict:
+    """Force the Accept header to advertise both JSON and SSE.
+
+    Clients that send only one of them (or none) would otherwise be rejected with
+    406 by the transport's Accept validation. We answer in JSON regardless, so
+    widening the header is safe and makes the endpoint accept any MCP client.
+    """
+    headers = [(k, v) for k, v in scope.get("headers", []) if k != b"accept"]
+    headers.append((b"accept", _ACCEPT_BOTH))
+    return {**scope, "headers": headers}
 
 
 def _token_from_request(request: Request) -> str | None:
@@ -77,7 +98,7 @@ async def _mcp_asgi(scope, receive, send):
             token = value.decode()
             break
     set_user_token(token or os.environ.get("VIRTUAL_MCP_DEV_TOKEN"))
-    await _session_manager.handle_request(scope, receive, send)
+    await _session_manager.handle_request(_with_full_accept(scope), receive, send)
 
 
 async def application(scope, receive, send):
