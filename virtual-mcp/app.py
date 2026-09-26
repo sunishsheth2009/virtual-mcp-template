@@ -173,13 +173,6 @@ async def login(request: Request):
     return RedirectResponse("/", status_code=302)
 
 
-@app.get("/login-status")
-async def login_status():
-    # Status + sign-in + revoke are merged into the home page now; keep this path
-    # as a redirect so old links still work.
-    return RedirectResponse("/", status_code=302)
-
-
 @app.get("/api/tools")
 async def api_tools(request: Request):
     """The exact merged/filtered tool list agents see post-login, plus a
