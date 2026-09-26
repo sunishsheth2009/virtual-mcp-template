@@ -189,13 +189,17 @@ async def revoke_user_credential(token: str, name: str) -> int:
 
 
 async def user_credential_state(token: str, name: str) -> str:
-    """Return login state for one service: 'ACTIVE' or 'NEEDS_LOGIN'.
+    """Login state for one service, distinguishing four cases so the UI is honest:
 
-    Only a 200 with provisioning state ACTIVE counts as signed in. Everything else
-    -- 404 (no stored credential), a non-active 200, OR any transient error
-    (500/503/429 while Unity Catalog is rate-limited) -- returns NEEDS_LOGIN so the
-    UI still OFFERS sign-in. (A transient server error must NOT be mistaken for
-    "no sign-in needed", which would hide the Sign in button.)
+    - 'ACTIVE'      : 200 + provisioning ACTIVE -> signed in.
+    - 'NEEDS_LOGIN' : 404 (no stored credential) or a non-active 200 -> offer sign-in.
+    - 'NO_AUTH'     : 400 -> the service takes no per-user credential (e.g. web_search).
+    - 'UNKNOWN'     : 401/403/429/5xx or a transport error (e.g. Unity Catalog
+                      rate-limited) -> we can't tell; show "status unavailable" and
+                      still offer sign-in rather than mislabel it.
+
+    A transient server error must NOT be reported as NEEDS_LOGIN ("needs sign-in")
+    or NO_AUTH ("no sign-in needed") -- both would be wrong.
     """
     host = databricks_host()
     # Short timeout: the caller checks many services and a slow/rate-limited UC
@@ -209,6 +213,10 @@ async def user_credential_state(token: str, name: str) -> str:
         if resp.status_code == 200:
             state = (resp.json().get("provisioning_info") or {}).get("state", "")
             return "ACTIVE" if state == "ACTIVE" else "NEEDS_LOGIN"
+        if resp.status_code == 404:
+            return "NEEDS_LOGIN"
+        if resp.status_code == 400:
+            return "NO_AUTH"
     except (httpx.HTTPError, ValueError):
         pass
-    return "NEEDS_LOGIN"
+    return "UNKNOWN"

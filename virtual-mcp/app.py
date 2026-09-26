@@ -92,7 +92,7 @@ async def _credential_states(token: str, services) -> list[str]:
         try:
             return await asyncio.wait_for(user_credential_state(token, name), timeout=8)
         except (asyncio.TimeoutError, Exception):  # noqa: BLE001
-            return "NEEDS_LOGIN"
+            return "UNKNOWN"
 
     return await asyncio.gather(*(one(s.name) for s in services))
 
@@ -146,9 +146,16 @@ async def index() -> str:
 
 
 def _public_base(request: Request) -> str:
-    """Public base URL of this app, for building an mcp-service-login return_to."""
-    host = request.headers.get("host")
-    return f"https://{host}" if host else app_base_url()
+    """Public base URL of this app, for building an mcp-service-login return_to.
+
+    Behind the Databricks Apps proxy the `Host` header is the internal
+    localhost:8000; the public host arrives in `x-forwarded-host`. Use that (never
+    a localhost host, which would make return_to unreachable)."""
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    if host and "localhost" not in host and "127.0.0.1" not in host:
+        proto = request.headers.get("x-forwarded-proto", "https")
+        return f"{proto}://{host}"
+    return app_base_url()
 
 
 @app.get("/login")

@@ -110,6 +110,7 @@ let LOGIN_BASE = '', STATES = [];
 function badge(state) {{
   if (state === 'ACTIVE') return '<span class="badge ok">signed in</span>';
   if (state === 'NO_AUTH') return '<span class="badge none">no sign-in needed</span>';
+  if (state === 'UNKNOWN') return '<span class="badge err">status unavailable</span>';
   return '<span class="badge need">needs sign-in</span>';
 }}
 
@@ -136,7 +137,8 @@ async function load() {{
     const toolBadge = d.error ? `<span class="badge err">${{d.error}}</span>` : (d.ok ? `<span class="badge none">${{d.count}} tools</span>` : '');
     const action = s.state === 'ACTIVE'
       ? `<button data-name="${{s.name}}" class="rev">Revoke</button>`
-      : (s.state === 'NEEDS_LOGIN' ? `<a class="btn" target="_blank" href="${{LOGIN_BASE}}?name=${{encodeURIComponent(s.name)}}">Sign in</a>` : '');
+      : (s.state === 'NO_AUTH' ? ''
+         : `<a class="btn" target="_blank" href="${{LOGIN_BASE}}?name=${{encodeURIComponent(s.name)}}">Sign in</a>`);
     const div = document.createElement('div'); div.className = 'svc';
     let html = `<div class="row between wrap"><div><span class="name">${{d.alias || s.name}}</span><span class="fqn">${{s.name}}</span></div>`
              + `<div class="row wrap">${{badge(s.state)}}${{toolBadge}}${{action}}</div></div>`;
