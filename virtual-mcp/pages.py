@@ -116,7 +116,7 @@ function statusPill(state){
 async function boot(){
   document.getElementById('mcpurl').textContent=MCP_URL;
   document.getElementById('copybtn').onclick=()=>navigator.clipboard&&navigator.clipboard.writeText(MCP_URL);
-  document.getElementById('signinall').onclick=()=>{location.href='/login'};
+  document.getElementById('signinall').onclick=signInAll;
   document.getElementById('revokeall').onclick=revokeAll;
   await load();
 }
@@ -217,6 +217,39 @@ async function revokeAll(){
   for(const s of active){const r=await api('/api/revoke',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:s.name})});
     const d=r.data||{};if(d&&d.ok===false){alert('Revoke failed for '+s.name+' (HTTP '+d.status+')');break}}
   await load();
+}
+async function pollActive(name){
+  // Poll the app (same-origin) until this service is no longer NEEDS_LOGIN.
+  for(let i=0;i<40;i++){
+    await new Promise(r=>setTimeout(r,3000));
+    const st=await api('/api/login-status');
+    const svc=((st.data&&st.data.services)||[]).find(x=>x.name===name);
+    if(!svc||svc.state!=='NEEDS_LOGIN')return true;
+  }
+  return false;
+}
+async function signInAll(){
+  const btn=document.getElementById('signinall');
+  // Open ONE popup synchronously inside the click gesture (avoids the popup
+  // blocker), then reuse it -- navigating it to each service's platform login in
+  // turn and polling our own API between. This works cross-origin (no return_to,
+  // which the workspace login page won't honor back to the app origin).
+  const win=window.open('about:blank','mcp_signin','width=560,height=720');
+  if(!win){alert('Popup blocked — allow popups for this app, then click Sign in to all again.');return}
+  await load();
+  const pending=STATES.filter(s=>s.state==='NEEDS_LOGIN');
+  if(!pending.length){try{win.close()}catch(e){}; return}
+  btn.disabled=true;
+  for(let i=0;i<pending.length;i++){
+    const s=pending[i];
+    if(win.closed)break;
+    try{win.location.href=LOGIN_BASE+'?name='+encodeURIComponent(s.name)}catch(e){}
+    btn.textContent='Signing in '+(i+1)+'/'+pending.length+'…';
+    await pollActive(s.name);
+    await load();               // live-update nav/detail as each completes
+  }
+  try{win.close()}catch(e){}
+  btn.disabled=false;btn.textContent='Sign in to all';
 }
 window.addEventListener('DOMContentLoaded',boot);
 """
