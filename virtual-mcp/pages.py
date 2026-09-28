@@ -148,17 +148,29 @@ async function load() {{
 }}
 
 async function revokeOne(name) {{
-  await fetch('/api/revoke', {{ method:'POST', headers:{{'content-type':'application/json'}}, body: JSON.stringify({{ name }}) }});
+  const r = await fetch('/api/revoke', {{ method:'POST', headers:{{'content-type':'application/json'}}, body: JSON.stringify({{ name }}) }});
+  try {{ return await r.json(); }} catch(e) {{ return {{ ok:false, status:r.status }}; }}
+}}
+function revokeErr(status) {{
+  if (status === 403) return "Revoke failed (403): this app's user scope is read-only (unity-catalog:read). An account admin must grant the writable unity-catalog scope on its OAuth integration.";
+  return "Revoke failed (HTTP " + status + ").";
 }}
 document.getElementById('list').addEventListener('click', async (e) => {{
   const b = e.target.closest('.rev'); if (!b) return;
-  b.disabled = true; await revokeOne(b.dataset.name); await load();
+  b.disabled = true;
+  const res = await revokeOne(b.dataset.name);
+  if (res && res.ok === false) {{ document.getElementById('msg').textContent = revokeErr(res.status); b.disabled = false; }}
+  else await load();
 }});
 document.getElementById('revokeall').addEventListener('click', async () => {{
   const msg = document.getElementById('msg');
   const active = STATES.filter(x => x.state === 'ACTIVE');
   if (!active.length) {{ msg.textContent = 'Nothing to revoke.'; return; }}
-  for (const s of active) {{ msg.textContent = 'Revoking ' + s.name + '…'; await revokeOne(s.name); }}
+  for (const s of active) {{
+    msg.textContent = 'Revoking ' + s.name + '…';
+    const res = await revokeOne(s.name);
+    if (res && res.ok === false) {{ msg.textContent = revokeErr(res.status); return; }}
+  }}
   msg.textContent = '✓ Revoked all connections.'; await load();
 }});
 document.getElementById('reload').addEventListener('click', load);
