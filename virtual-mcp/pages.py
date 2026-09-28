@@ -76,6 +76,13 @@ _STYLE = """
  .tag.read{background:var(--green-bg);color:var(--green)}
  .tag.write{background:var(--amber-bg);color:var(--amber)}
  .tag.neutral{background:var(--gray-bg);color:var(--gray)}
+ td.desc{max-width:520px}
+ details.descx>summary{cursor:pointer;list-style:none;display:block;white-space:nowrap;overflow:hidden;
+   text-overflow:ellipsis;color:var(--muted);font-size:12.5px}
+ details.descx>summary::-webkit-details-marker{display:none}
+ details.descx>summary::before{content:"\\25B8  ";color:var(--muted)}
+ details.descx[open]>summary{white-space:normal;overflow:visible}
+ details.descx[open]>summary::before{content:"\\25BE  "}
  .field{display:flex;flex-direction:column;gap:4px;margin:8px 0}
  .field label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
  select,textarea{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;padding:8px 10px;
@@ -161,8 +168,9 @@ function renderDetail(){
        : `<a class="btn btn-primary btn-sm" target="_blank" href="${LOGIN_BASE}?name=${encodeURIComponent(s.name)}">Sign in</a>`);
   const toolErr = diag.error ? `<div class="note warn">Tools unavailable: ${esc(diag.error)}</div>` : '';
   const rows = tools.map(t=>{const b=t.name.split('__').pop();const tg=tagFor(t.name);
-    return `<tr><td class="tname">${esc(b)} <span class="tag ${tg}">${tg}</span></td>`
-      +`<td class="muted">${esc((t.description||'').replace(/^\\[[^\\]]*\\]\\s*/,''))}</td></tr>`}).join('');
+    const desc=(t.description||'').replace(/^\\[[^\\]]*\\]\\s*/,'');
+    const dcell=desc?`<details class="descx"><summary>${esc(desc)}</summary></details>`:'<span class="muted">—</span>';
+    return `<tr><td class="tname">${esc(b)} <span class="tag ${tg}">${tg}</span></td><td class="desc">${dcell}</td></tr>`}).join('');
   el.innerHTML = `<div class="dbody">
     <div class="dhead"><h2 class="dtitle">${esc(s.alias||s.name)}</h2>${statusPill(s.state)}${action}</div>
     <p class="dsub">${esc(s.name)}</p>
