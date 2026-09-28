@@ -88,10 +88,9 @@ def home_page(cfg: cfg_mod.VirtualMcpConfig) -> str:
   </div>
   <div class="card">
     <div class="row between wrap">
-      <div><h2>Services &amp; tools</h2><div class="sub">Sign in to each service to expose its tools. Status shown per service.</div></div>
+      <div><h2>Services &amp; tools</h2><div class="sub">Sign in to each service to expose its tools. Use <b>Manage</b> to sign out.</div></div>
       <div class="row wrap">
         <a class="btn primary" href="/login">Sign in to all</a>
-        <button id="revokeall">Revoke all</button>
         <button id="reload">Reload</button>
       </div>
     </div>
@@ -135,10 +134,13 @@ async function load() {{
     const d = diagByName[s.name] || {{}};
     const tools = byAlias[d.alias] || [];
     const toolBadge = d.error ? `<span class="badge err">${{d.error}}</span>` : (d.ok ? `<span class="badge none">${{d.count}} tools</span>` : '');
-    const action = s.state === 'ACTIVE'
-      ? `<button data-name="${{s.name}}" class="rev">Revoke</button>`
-      : (s.state === 'NO_AUTH' ? ''
-         : `<a class="btn" target="_blank" href="${{LOGIN_BASE}}?name=${{encodeURIComponent(s.name)}}">Sign in</a>`);
+    // Sign in AND sign out/revoke both happen on the platform's mcp-service-login
+    // page (which runs with the user's full workspace session). The app's own OBO
+    // token is read-only for unity-catalog (the platform downscopes it), so it
+    // cannot write/revoke credentials itself -- hence "Manage" links out.
+    const action = s.state === 'NO_AUTH' ? ''
+      : `<a class="btn" target="_blank" href="${{LOGIN_BASE}}?name=${{encodeURIComponent(s.name)}}">`
+        + (s.state === 'ACTIVE' ? 'Manage' : 'Sign in') + `</a>`;
     const div = document.createElement('div'); div.className = 'svc';
     let html = `<div class="row between wrap"><div><span class="name">${{d.alias || s.name}}</span><span class="fqn">${{s.name}}</span></div>`
              + `<div class="row wrap">${{badge(s.state)}}${{toolBadge}}${{action}}</div></div>`;
@@ -146,33 +148,6 @@ async function load() {{
     div.innerHTML = html; list.appendChild(div);
   }});
 }}
-
-async function revokeOne(name) {{
-  const r = await fetch('/api/revoke', {{ method:'POST', headers:{{'content-type':'application/json'}}, body: JSON.stringify({{ name }}) }});
-  try {{ return await r.json(); }} catch(e) {{ return {{ ok:false, status:r.status }}; }}
-}}
-function revokeErr(status) {{
-  if (status === 403) return "Revoke failed (403): this app's user scope is read-only (unity-catalog:read). An account admin must grant the writable unity-catalog scope on its OAuth integration.";
-  return "Revoke failed (HTTP " + status + ").";
-}}
-document.getElementById('list').addEventListener('click', async (e) => {{
-  const b = e.target.closest('.rev'); if (!b) return;
-  b.disabled = true;
-  const res = await revokeOne(b.dataset.name);
-  if (res && res.ok === false) {{ document.getElementById('msg').textContent = revokeErr(res.status); b.disabled = false; }}
-  else await load();
-}});
-document.getElementById('revokeall').addEventListener('click', async () => {{
-  const msg = document.getElementById('msg');
-  const active = STATES.filter(x => x.state === 'ACTIVE');
-  if (!active.length) {{ msg.textContent = 'Nothing to revoke.'; return; }}
-  for (const s of active) {{
-    msg.textContent = 'Revoking ' + s.name + '…';
-    const res = await revokeOne(s.name);
-    if (res && res.ok === false) {{ msg.textContent = revokeErr(res.status); return; }}
-  }}
-  msg.textContent = '✓ Revoked all connections.'; await load();
-}});
 document.getElementById('reload').addEventListener('click', load);
 load();
 </script>

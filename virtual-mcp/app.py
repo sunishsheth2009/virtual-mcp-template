@@ -32,7 +32,7 @@ import pages
 from context import USER_TOKEN_HEADER, app_base_url, databricks_host, set_user_token
 import mcp_proxy
 from mcp_proxy import server
-from upstream import revoke_user_credential, user_credential_state
+from upstream import user_credential_state
 
 # Stateless proxy: every MCP request is independent, so no session store needed.
 # json_response=True: reply with a single plain-JSON body instead of an SSE frame.
@@ -208,19 +208,6 @@ async def api_login_status(request: Request):
         {"name": s.name, "alias": s.alias, "state": st} for s, st in zip(services, states)
     ]
     return {"services": statuses, "login_base": f"{databricks_host()}/mcp-service-login"}
-
-
-@app.post("/api/revoke")
-async def api_revoke(request: Request, payload: dict):
-    """Revoke the caller's credential for one service (backs guided-revoke / revoke-all)."""
-    token = _token_from_request(request)
-    if not token:
-        return JSONResponse({"error": "no_user_token"}, status_code=401)
-    name = payload.get("name")
-    if not name:
-        return JSONResponse({"error": "name required"}, status_code=400)
-    status = await revoke_user_credential(token, name)
-    return {"ok": status < 400 or status == 404, "status": status}
 
 
 @app.get("/healthz")
