@@ -17,7 +17,10 @@ Surfaces:
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
+import json
 import os
 
 from urllib.parse import quote
@@ -32,7 +35,7 @@ import pages
 from context import USER_TOKEN_HEADER, app_base_url, databricks_host, set_user_token
 import mcp_proxy
 from mcp_proxy import server
-from upstream import user_credential_state
+from upstream import revoke_user_credential, user_credential_state
 
 # Stateless proxy: every MCP request is independent, so no session store needed.
 # json_response=True: reply with a single plain-JSON body instead of an SSE frame.
@@ -208,6 +211,43 @@ async def api_login_status(request: Request):
         {"name": s.name, "alias": s.alias, "state": st} for s, st in zip(services, states)
     ]
     return {"services": statuses, "login_base": f"{databricks_host()}/mcp-service-login"}
+
+
+@app.post("/api/revoke")
+async def api_revoke(request: Request, payload: dict):
+    """Revoke the caller's stored credential for one service (DELETE). Needs the
+    writable `unity-catalog` OBO scope; surfaces the upstream error on failure."""
+    token = _token_from_request(request)
+    if not token:
+        return JSONResponse({"error": "no_user_token"}, status_code=401)
+    name = payload.get("name")
+    if not name:
+        return JSONResponse({"error": "name required"}, status_code=400)
+    status, detail = await revoke_user_credential(token, name)
+    return {"ok": status < 400 or status == 404, "status": status, "detail": detail}
+
+
+@app.get("/api/debug-scopes")
+async def api_debug_scopes(request: Request):
+    """Decode the incoming OBO token's `scope` claim (no signature check, claims
+    only) so we can see exactly what scopes THIS caller's token carries -- a
+    browser session vs a CLI bearer can differ. Does not return the token."""
+    tok = request.headers.get(USER_TOKEN_HEADER)
+    if not tok:
+        return {"error": "no x-forwarded-access-token on this request"}
+    parts = tok.split(".")
+    if len(parts) < 2:
+        return {"note": "token is not a JWT (opaque); cannot read scopes client-side"}
+    try:
+        pad = parts[1] + "=" * (-len(parts[1]) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(pad))
+    except (binascii.Error, ValueError, json.JSONDecodeError) as e:
+        return {"error": f"could not decode token payload: {e}"}
+    return {
+        "scope": claims.get("scope") or claims.get("scopes"),
+        "aud": claims.get("aud"),
+        "token_type": claims.get("token_type"),
+    }
 
 
 @app.get("/healthz")

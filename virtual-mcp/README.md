@@ -38,16 +38,26 @@ volume (this is the "preset" the app reads):
 Virtual MCP Server**, and pick your volume for the `config-volume` resource.
 (Or by CLI: `./create_virtual_mcp.sh <app-name>`.)
 
-**3. Grant the scope.** The app reads Unity Catalog on behalf of the user, so an
-account admin adds `unity-catalog` (or `unity-catalog:read`) to the app's OAuth
-integration — `ai-gateway` is requested automatically:
+**3. Grant the scope — BEFORE first sign-in.** The app acts on Unity Catalog on
+behalf of the user (list services, read status, **and revoke** credentials), so an
+account admin grants the **writable** `unity-catalog` scope. Use bare
+`unity-catalog`, **not `unity-catalog:read`** — read-only can list/status but
+cannot revoke (there is no `unity-catalog:write`). Set both the requestable scope
+and the pre-consented set (`ai-gateway` is requested automatically):
 
 ```bash
 INTEG=$(databricks apps get <app-name> -o json | jq -r .oauth2_app_integration_id)
 databricks account custom-app-integration get "$INTEG" -o json \
   | jq '{scopes:(.scopes + ["unity-catalog"] | unique)}' \
   | databricks account custom-app-integration update "$INTEG" --json @-
+databricks account custom-app-integration update "$INTEG" \
+  --json '{"user_authorized_scopes":["ai-gateway","unity-catalog"]}'
 ```
+
+> Do this **before** anyone signs in. A user's OAuth consent grant is fixed at
+> the scope granted on first sign-in — if the app ever hands out `unity-catalog:read`
+> first, that user's grant sticks read-only (revoke 403s) and only recreating the
+> app resets it.
 
 **4. Sign in and use.** Open the app, click **Sign in** (guided per-service
 login), then point your agent at `https://<app-url>/mcp`.
