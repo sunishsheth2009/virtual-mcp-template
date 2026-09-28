@@ -103,37 +103,46 @@ async def on_list_tools(ctx, params) -> types.ListToolsResult:
     return types.ListToolsResult(tools=await collect_tools(_token_from_ctx(ctx)))
 
 
-async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
+async def call_tool_by_name(token: str | None, name: str, arguments: dict | None) -> dict:
+    """Route a namespaced `alias__tool` call to its upstream service. Returns
+    {ok, content, error, needs_login}, where content is the upstream MCP content
+    list. Shared by the MCP `tools/call` handler and the app's /api/call view."""
     cfg = cfg_mod.load()
-    token = _token_from_ctx(ctx)
     if not token:
-        return _error("No user token on request; enable user authorization for this app.")
-
-    alias, tool = _split(params.name)
+        return {"ok": False, "content": None, "error": "No user token; enable user authorization.", "needs_login": False}
+    alias, tool = _split(name)
     sel = cfg.by_alias(alias)
     if sel is None or not tool:
-        return _error(f"Unknown tool '{params.name}'.")
+        return {"ok": False, "content": None, "error": f"Unknown tool '{name}'.", "needs_login": False}
     if not sel.matches(tool):
-        return _error(f"Tool '{tool}' is not exposed by this virtual MCP server.")
-
+        return {"ok": False, "content": None, "error": f"Tool '{tool}' is not exposed.", "needs_login": False}
     client = GatewayMcpClient(token)
     try:
-        result = await client.call_tool(sel.name, tool, params.arguments or {})
+        result = await client.call_tool(sel.name, tool, arguments or {})
     except UpstreamError as e:
-        if e.needs_login:
-            # Actionable login URL instead of an opaque failure.
-            return _error(_login_hint(sel.name))
-        return _error(f"Upstream error {e.code}: {e.message}")
+        msg = _login_hint(sel.name) if e.needs_login else f"Upstream error {e.code}: {e.message}"
+        return {"ok": False, "content": None, "error": msg, "needs_login": e.needs_login}
     finally:
         await client.aclose()
+    return {
+        "ok": not bool(result.get("isError", False)),
+        "content": result.get("content"),
+        "error": None,
+        "needs_login": False,
+    }
 
-    content = result.get("content")
+
+async def on_call_tool(ctx, params: types.CallToolRequestParams) -> types.CallToolResult:
+    res = await call_tool_by_name(_token_from_ctx(ctx), params.name, params.arguments)
+    if res["error"]:
+        return _error(res["error"])
+    content = res.get("content")
     blocks = (
         [_coerce_block(b) for b in content]
         if isinstance(content, list) and content
-        else [types.TextContent(type="text", text=str(result))]
+        else [types.TextContent(type="text", text=str(content))]
     )
-    return types.CallToolResult(content=blocks, isError=bool(result.get("isError", False)))
+    return types.CallToolResult(content=blocks, isError=not res["ok"])
 
 
 def _error(message: str) -> types.CallToolResult:

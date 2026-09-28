@@ -193,11 +193,41 @@ async def api_tools(request: Request):
     tools, diagnostics = await mcp_proxy.collect(token)
     return {
         "tools": [
-            {"name": t.name, "description": t.description or "", "alias": t.name.split("__", 1)[0]}
+            {
+                "name": t.name,
+                "description": t.description or "",
+                "alias": t.name.split("__", 1)[0],
+                "inputSchema": t.input_schema or {"type": "object"},
+            }
             for t in tools
         ],
         "diagnostics": diagnostics,
     }
+
+
+@app.post("/api/call")
+async def api_call(request: Request, payload: dict):
+    """Invoke one merged tool (namespaced `alias__tool`) with JSON arguments, so
+    the UI can try tools. Routes to the owning service via the same path the MCP
+    server uses. Returns {ok, text, error, needs_login}."""
+    token = _token_from_request(request)
+    if not token:
+        return JSONResponse({"error": "no_user_token"}, status_code=401)
+    name = payload.get("name")
+    if not name:
+        return JSONResponse({"error": "name required"}, status_code=400)
+    args = payload.get("arguments") or {}
+    if not isinstance(args, dict):
+        return JSONResponse({"error": "arguments must be a JSON object"}, status_code=400)
+    res = await mcp_proxy.call_tool_by_name(token, name, args)
+    # Flatten upstream content blocks to display text.
+    text = ""
+    for b in res.get("content") or []:
+        if isinstance(b, dict):
+            text += b.get("text", "") if b.get("type") == "text" else json.dumps(b)
+        else:
+            text += str(b)
+    return {"ok": res["ok"], "text": text, "error": res.get("error"), "needs_login": res.get("needs_login", False)}
 
 
 @app.get("/api/login-status")
