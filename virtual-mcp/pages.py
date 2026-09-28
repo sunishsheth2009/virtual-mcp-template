@@ -68,15 +68,16 @@ _STYLE = """
  .btn-secondary{background:transparent;color:var(--ink);border-color:var(--line)}
  .btn-secondary:hover{border-color:var(--muted)}
  .sec{font-weight:600;font-size:13px;margin:20px 0 6px}
- table{width:100%;border-collapse:collapse}
+ table{width:100%;border-collapse:collapse;table-layout:fixed}
  th,td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
+ th:first-child{width:340px}
  th{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
- .tname{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;white-space:nowrap}
+ .tname{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .tag{font-size:11px;padding:2px 7px;border-radius:5px;font-weight:600}
  .tag.read{background:var(--green-bg);color:var(--green)}
  .tag.write{background:var(--amber-bg);color:var(--amber)}
  .tag.neutral{background:var(--gray-bg);color:var(--gray)}
- td.desc{max-width:520px}
  details.descx>summary{cursor:pointer;list-style:none;display:block;white-space:nowrap;overflow:hidden;
    text-overflow:ellipsis;color:var(--muted);font-size:12.5px}
  details.descx>summary::-webkit-details-marker{display:none}
